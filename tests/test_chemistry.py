@@ -1,5 +1,6 @@
 import unittest
 from velocity.chemistry import Species, Reaction, Network
+import numpy as np
 
 # to run tests, run from project root: python -m unittest discover -v
 
@@ -80,6 +81,13 @@ class TestNetwork(unittest.TestCase):
         }
 
         network = Network(reactions_dict)
+
+        print()
+        matrix = network.stoichiometry_matrix
+        print(matrix)
+        concentration_vector = np.array([1.0,0.1,0.0])
+        rate_vector = network.get_rate_vector(concentration_vector)
+        print(rate_vector)
 
 if __name__ == "__main__":
     unittest.main()

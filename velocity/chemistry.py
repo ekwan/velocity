@@ -103,11 +103,17 @@ class Network():
     """ This represents a chemical reaction network.
 
         Attributes:
-            species (:obj:`list` of Species): the species in the reaction network (no duplicates)
+            species (:obj:`list`): list of Species in alphabetical order by description with no duplications
             reactions_dict (:obj:`dict`): {Reaction : rate_constant (k_forward (float), or (k_forward, k_reverse))}
-            fixed_concentrations (:obj:`list` of Species): Species for which their initial concentrations will be fixed
-            stoichiometry_matrix (:obj:`np.ndarray` of float): rows are reactions, indexed by the order in `reactions_dict`;
-                                                               columns refer to species, indexed by order in `species`
+            rate_constant_vector (:obj:`list`): list of all the rate constants, order matches reactions_dict
+            rate_indices (:obj:`list`): list of lists, outer index corresponds to reaction, inner lists contain
+                                        the indices of the Species that are on the left hand side of the reaction
+            fixed_concentrations_vector (:obj:`np.ndarray` of float): indexed by order in species, elements are 0 if the
+                                                                      corresponding Species has a fixed concentration or 1 otherwise
+            stoichiometry_matrix (:obj:`np.ndarray` of float): rows are species, indexed by order in `species`;
+                                                               columns refer to reactions, indexed by the order in `reactions_dict`
+                                                               (remember, reversible reactions count as two reactions with the
+                                                               forward reaction first)
 
     """
     def __init__(self, reactions_dict, fixed_concentrations=None):
@@ -148,22 +154,38 @@ class Network():
                 assert is_valid_rate_constant(rate_constant, reaction)
                 rate_constants.append(rate_constant)
 
+            # store all the unique Species in a set
             species.update(reaction.reactants)
             species.update(reaction.products)
 
+        # keep a list of all the unique Species in alphabetical order 
+        species = list(sorted(species, key=lambda s : s.description))
+
         # check fixed concentrations
-        species = list(sorted(species, key=lambda s:s.description))
         if fixed_concentrations is None:
             fixed_concentrations = []
         for s in fixed_concentrations:
             assert isinstance(s, Species), f"expected Species but got {type(s)}"
             assert s in species, f"Species {s} is not in this reaction network"
+        fixed_concentrations_vector = [0 if s in fixed_concentrations else 1 for s in species]
+
+        # create an array of which species concentrations should be multiplied together
+        # to generate the rate vector quickly
+        rate_indices = []
+        for reaction in reactions_dict:
+            indices = [ species.index(reactant) for reactant in reaction.reactants ]
+            rate_indices.append(indices)
+            if reaction.reversible:
+                indices = [ species.index(product) for product in reaction.product ]
+                rate_indices.append(indices)
 
         # store data
         self.species = species
         self.reactions_dict = reactions_dict
-        self.fixed_concentrations = fixed_concentrations
-        self.stochiometry_matrix = Network._make_stoichiometry_matrix(species, reactions_dict)
+        self.rate_constant_vector = np.array(rate_constants)
+        self.rate_indices = rate_indices
+        self.fixed_concentrations_vector = np.array(fixed_concentrations_vector)
+        self.stoichiometry_matrix = Network._make_stoichiometry_matrix(species, reactions_dict)
 
     @staticmethod
     def _make_stoichiometry_matrix(all_species, reactions_dict):
@@ -174,14 +196,14 @@ class Network():
             reactions_dict (:obj:`dict`): {Reaction : rate_constant (k_forward (float), or (k_forward, k_reverse))}
 
         Returns:
-            np.ndarray: (n_reactions,n_species) with +1 for creation and -1 for destruction
+            np.ndarray: (n_species,n_reactions) with +1 for creation and -1 for destruction
         """
         # form stoichiometry matrix
         n_reactions = 0
         for reaction in reactions_dict:
             n_reactions += 2 if reaction.reversible else 1
         n_species = len(all_species)
-        matrix = np.zeros((n_reactions,n_species))
+        matrix = np.zeros((n_species,n_reactions))
 
         # update the stoichiometry matrix for a given reaction
         #
@@ -190,7 +212,7 @@ class Network():
         def update_matrix(species, reaction_index, sign):
             for s in species:
                 species_index = all_species.index(s)
-                matrix[reaction_index][species_index] = sign
+                matrix[species_index][reaction_index] = sign
 
         # populate stoichiometry matrix
         reaction_index = 0
@@ -217,5 +239,26 @@ class Network():
         assert isinstance(concentration_vector, np.ndarray), f"expected np.array for concentration vector"
         n_species = len(self.species)
         assert concentration_vector.shape == (n_species,), f"expected shape of ({n_species},) in concentration vector but got shape {concentration_vector.shape}"
-        rate_vector = self.stoichiometry_matrix @ concentration_vector
-        return rate_vector
+        
+        # compute rate_reaction vector
+        # the i-th element is the rate of reaction i, indexed by the order in self.reactions_dict
+        # the rate of reaction i is the rate constant for that reaction multiplied by the product of all
+        # concentrations on the left-hand side of the reaction (or the opposite for the reverse reactions)
+        rate_reaction_vector = []
+        for i,indices in enumerate(self.rate_indices):
+            product = 1.0
+            for j in indices:
+                product *= concentration_vector[j]
+            rate_reaction_vector.append(product)
+        rate_reaction_vector = np.array(rate_reaction_vector) 
+        rate_reaction_vector = self.rate_constant_vector * rate_reaction_vector
+
+        # compute the rate for each species
+        # the i-th element is the rate of production of species i,
+        # indexed by the order in self.species 
+        rate_species_vector = self.stoichiometry_matrix @ rate_reaction_vector
+
+        # zero out entries for fixed concentrations
+        rate_species_vector = self.fixed_concentrations_vector * rate_species_vector
+
+        return rate_species_vector
