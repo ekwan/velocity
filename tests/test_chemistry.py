@@ -82,12 +82,71 @@ class TestNetwork(unittest.TestCase):
 
         network = Network(reactions_dict)
 
-        print()
         matrix = network.stoichiometry_matrix
-        print(matrix)
+        expected_stoichiometry_matrix = np.array([[-1.0,  0.0],
+                                                  [ 1.0, -1.0],
+                                                  [ 0.0,  1.0]])
+        self.assertTrue(np.allclose(network.stoichiometry_matrix, expected_stoichiometry_matrix))
+        
         concentration_vector = np.array([1.0,0.1,0.0])
         rate_vector = network.get_rate_vector(concentration_vector)
-        print(rate_vector)
+        expected_rate_vector = np.array([-2.0, 1.7, 0.3])
+        self.assertTrue(np.allclose(rate_vector, expected_rate_vector))
+
+    def test2(self):
+        species_A = Species("A")
+        species_B = Species("B")
+        species_C = Species("C")
+
+        reaction1 = Reaction(species_A, species_B, reversible=True)
+        reaction2 = Reaction(species_B, species_C)
+
+        reactions_dict = {
+            reaction1 : (2.0,3.0),
+            reaction2 : (4.0),
+        }
+
+        network = Network(reactions_dict, fixed_concentrations=None)
+
+        matrix = network.stoichiometry_matrix
+        expected_stoichiometry_matrix = np.array([[-1.0,  1.0,  0.0],
+                                                  [ 1.0, -1.0, -1.0],
+                                                  [ 0.0,  0.0,  1.0]])
+        self.assertTrue(np.allclose(network.stoichiometry_matrix, expected_stoichiometry_matrix))
+        
+        concentration_vector = np.array([1.0,0.2,0.1])
+        rate_vector = network.get_rate_vector(concentration_vector)
+        expected_rate_vector = np.array([-1.4, 0.6, 0.8])
+        self.assertTrue(np.allclose(rate_vector, expected_rate_vector))
+
+        network2 = Network(reactions_dict, fixed_concentrations=[species_C])
+        self.assertTrue(np.allclose(network2.stoichiometry_matrix, expected_stoichiometry_matrix))
+        rate_vector = network2.get_rate_vector(concentration_vector)
+        expected_rate_vector = np.array([-1.4, 0.6, 0.0])
+        self.assertTrue(np.allclose(rate_vector, expected_rate_vector))
+
+    def test3(self):
+        species_A = Species("A")
+        species_B = Species("B")
+        
+        reaction1 = Reaction(species_A, species_B)
+
+        reactions_dict = {
+            reaction1 : 0.05,
+        }
+
+        network = Network(reactions_dict, fixed_concentrations=None)
+        t_span = (0.0, 100.0)
+        t_eval = np.linspace(0,100,101)
+        initial_concentrations_dict = { species_A : 1.0 }
+        concentrations_df = network.simulate_timecourse(initial_concentrations_dict, t_span, t_eval)
+        concentrations_df["logA"] = -np.log(concentrations_df.A)/concentrations_df.index + np.log(concentrations_df.A.iloc[0])
+        expected_log = np.ones_like(concentrations_df["logA"][1:])*0.05
+        self.assertTrue(np.allclose(concentrations_df["logA"][1:], expected_log, rtol=1e-3, atol=1e-3))
+
+        concentrations_df["sum"] = concentrations_df.A + concentrations_df.B
+        expected_sum = np.ones_like(concentrations_df["sum"])
+        self.assertTrue(np.allclose(concentrations_df["sum"], expected_sum))
 
 if __name__ == "__main__":
     unittest.main()

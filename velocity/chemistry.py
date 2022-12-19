@@ -1,4 +1,6 @@
 import numpy as np
+from scipy.integrate import solve_ivp
+import pandas as pd
 
 class Species():
     """ This represents a single chemical species.
@@ -136,8 +138,8 @@ class Network():
 
         # rate constants must be positive floats
         def is_valid_rate_constant(item, reaction):
-            assert isinstance(v, float), f"expected float for rate constant but got {type(v)} for {reaction}"
-            assert v > 0.0, f"rate constant invalid for {reaction}"
+            assert isinstance(item, float), f"expected float for rate constant but got {item} ({type(item)}) for {reaction}"
+            assert item > 0.0, f"rate constant invalid for {reaction}"
             return True
 
         # check that all reactions and rate constants are valid
@@ -148,8 +150,10 @@ class Network():
                 assert len(v) == 2, f"expected 2-tuple but got length {len(v)} for {reaction}"
                 for rate_constant in v:
                     assert is_valid_rate_constant(rate_constant, reaction)
-                rate_constants.extend(v)
+                    rate_constants.append(rate_constant)
             else:
+                if isinstance(v, tuple) and len(v) == 1:
+                    v = v[0]
                 rate_constant = v
                 assert is_valid_rate_constant(rate_constant, reaction)
                 rate_constants.append(rate_constant)
@@ -176,7 +180,7 @@ class Network():
             indices = [ species.index(reactant) for reactant in reaction.reactants ]
             rate_indices.append(indices)
             if reaction.reversible:
-                indices = [ species.index(product) for product in reaction.product ]
+                indices = [ species.index(product) for product in reaction.products ]
                 rate_indices.append(indices)
 
         # store data
@@ -262,3 +266,60 @@ class Network():
         rate_species_vector = self.fixed_concentrations_vector * rate_species_vector
 
         return rate_species_vector
+
+    def simulate_timecourse(self, initial_concentrations, t_span, t_eval=None, max_step=np.inf, method="RK45"):
+        """ Runs a timecourse simulation of the specified system.
+
+            Uses scipy.integrate.solve_ivp.
+
+            Args:
+                initial_concentrations (:obj:`dict`, list, or :obj:`np.ndarray`):
+                                           { Species : concentration (float) }, any Species not included
+                                           are assumed to begin at a concentration of zero, or array of concentrations
+                                           indexed by self.Species
+                t_span (tuple): (t_start, t_finish)
+                t_eval (None or np.ndarray): times at which to store the computed solution, must be sorted
+                                             and lie within t_span, defaults to None
+                max_step (float): maximum time step, defaults to np.inf
+                method (str): see documentation for scipy.integrate.solve_ivp, defaults to "RK45"
+
+            Returns:
+                concentrations_df: rows are times, columns are species
+        """
+
+        # check inputs and convert them to a concentration vector
+        if isinstance(initial_concentrations, dict):
+            for k,v in initial_concentrations.items():
+                assert isinstance(k, Species), f"expected Species got {type(k)}"
+                assert k in self.species, f"Species {k} not in this Network"
+                assert v >= 0.0, f"concentration of {k} must be non-negative"
+            initial_concentrations = [initial_concentrations[s] if s in initial_concentrations else 0.0 for s in self.species]
+            assert np.sum(initial_concentrations) > 0.0, "must have at least one non-zero initial concentration"
+        if isinstance(initial_concentrations, (list,np.ndarray)):
+            if isinstance(initial_concentrations, list):
+                initial_concentrations = np.array(initial_concentrations, dtype=np.float64)
+            n_species = len(self.species)
+            assert initial_concentrations.shape == (n_species,), f"expected {len(self.species)}-length vector for initial concentrations, but got shape {initial_concentrations.shape}"
+            for i in initial_concentrations:
+                assert i >= 0.0, f"all concentrations in initial_concentrations must be non-negative:\n{initial_concentrations}"
+        else:
+            raise ValueError(f"Expected dictionary, list, or np.ndarray for initial concentrations but got {type(initial_concentrations)}.")
+
+        assert isinstance(t_span, tuple), f"expected times to be given as a tuple, got {type(t_span)} instead"
+        assert len(t_span) == 2, f"tuple should be length 2"
+        assert isinstance(t_eval, np.ndarray), f"expected evaluation times to be np.ndarray but got {type(t_eval)} instead"
+
+        assert isinstance(method, str), f"expected str for method but got {type(method)}"
+
+        assert isinstance(max_step, float) and max_step > 0.0, f"invalid max timestep: {max_step}"
+
+        # run simulation
+        f = lambda t,y : self.get_rate_vector(y)
+        solution = solve_ivp(f, t_span, initial_concentrations, t_eval=t_eval, max_step=max_step, method=method)
+
+        # convert to dataframe
+        concentrations_dict = { s.abbreviation : solution.y[i,:] for i,s in enumerate(self.species) }
+        concentrations_df = pd.DataFrame(concentrations_dict)
+        concentrations_df.index = solution.t
+        concentrations_df.index.name = "time"
+        return concentrations_df
