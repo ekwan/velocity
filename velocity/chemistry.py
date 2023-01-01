@@ -33,7 +33,7 @@ class Species():
         self.description = description
 
     def __str__(self):
-        return f"Reagent ({self.abbreviation})"
+        return f"Species ({self.abbreviation})"
 
     def __repr__(self):
         return str(self)
@@ -78,8 +78,8 @@ class Reaction():
         self.products = products
 
         # check species are not on both sides
-        for s in reactants:
-            assert s not in products, f"{s} is in both the reactants and products"
+        #for s in reactants:
+        #    assert s not in products, f"{s} is in both the reactants and products"
 
         # set reversibility flag
         assert isinstance(reversible, bool), f"got type {type(reversible)} but expected bool"
@@ -139,7 +139,7 @@ class Network():
         # rate constants must be positive floats
         def is_valid_rate_constant(item, reaction):
             assert isinstance(item, float), f"expected float for rate constant but got {item} ({type(item)}) for {reaction}"
-            assert item > 0.0, f"rate constant invalid for {reaction}"
+            assert item >= 0.0, f"rate constant invalid for {reaction}"
             return True
 
         # check that all reactions and rate constants are valid
@@ -170,24 +170,25 @@ class Network():
             fixed_concentrations = []
         for s in fixed_concentrations:
             assert isinstance(s, Species), f"expected Species but got {type(s)}"
-            assert s in species, f"Species {s} is not in this reaction network"
+            assert s in species, f"{s} is not in this reaction network"
         fixed_concentrations_vector = [0 if s in fixed_concentrations else 1 for s in species]
 
-        # create an array of which species concentrations should be multiplied together
-        # to generate the rate vector quickly
-        rate_indices = []
+        # for each reaction, gather the index of each species and its stoichiometric coefficient
+        # so that the rate reaction vector can be generated quickly
+        # each entry is (index, stoichiometric coefficient)
+        species_indices_and_coefficients = []
         for reaction in reactions_dict:
-            indices = [ species.index(reactant) for reactant in reaction.reactants ]
-            rate_indices.append(indices)
+            indices_and_coefficients = [ (species.index(reactant), coefficient) for reactant, coefficient in reaction.reactants.items() ]
+            species_indices_and_coefficients.append(indices_and_coefficients)
             if reaction.reversible:
-                indices = [ species.index(product) for product in reaction.products ]
-                rate_indices.append(indices)
+                indices_and_coefficients = [ (species.index(product), coefficient) for product, coefficient in reaction.products.items() ]
+                species_indices_and_coefficients.append(indices_and_coefficients)
 
         # store data
         self.species = species
         self.reactions_dict = reactions_dict
         self.rate_constant_vector = np.array(rate_constants)
-        self.rate_indices = rate_indices
+        self.species_indices_and_coefficients = species_indices_and_coefficients
         self.fixed_concentrations_vector = np.array(fixed_concentrations_vector)
         self.stoichiometry_matrix = Network._make_stoichiometry_matrix(species, reactions_dict)
 
@@ -211,22 +212,36 @@ class Network():
 
         # update the stoichiometry matrix for a given reaction
         #
-        # sign refers to whether the rate constant is increasing or decreasing the amount
-        # of this Species as time goes forward.  should be -1 for reactants and +1 for products
-        def update_matrix(species, reaction_index, sign):
-            for s in species:
+        # each entry is the number of molecules of the given species that are
+        # created (positive entries) or destroyed (negative entries)
+        def update_matrix(reaction, reaction_index, target, sign):
+            assert isinstance(reaction, Reaction), f"unexpected type: {type(reaction)}"
+            assert sign in [1,-1], "unknown sign"
+            if target == "reactants":
+                target = reaction.reactants
+            elif target == "products":
+                target = reaction.products
+            else:
+                raise ValueError(f"unknown target: {target}")
+
+            for s,coefficient in target.items():
                 species_index = all_species.index(s)
-                matrix[species_index][reaction_index] = sign
+                matrix[species_index][reaction_index] += sign * coefficient
 
         # populate stoichiometry matrix
         reaction_index = 0
         for reaction,rate_constants in reactions_dict.items():
-            update_matrix(reaction.reactants, reaction_index, -1)
-            update_matrix(reaction.products, reaction_index, 1)
+            # handle the forward reaction,
+            # which takes away reactants and makes products
+            update_matrix(reaction, reaction_index, "reactants", -1)
+            update_matrix(reaction, reaction_index, "products", 1)
+
+            # if reversible, handle the backward reaction,#
+            # which takes away products and makes reactants
             if isinstance(rate_constants, tuple):
                 reaction_index += 1
-                update_matrix(reaction.reactants, reaction_index, 1)
-                update_matrix(reaction.products, reaction_index, -1)
+                update_matrix(reaction, reaction_index, "reactants", 1)
+                update_matrix(reaction, reaction_index, "products", -1)
             reaction_index += 1
         
         return matrix
@@ -249,10 +264,10 @@ class Network():
         # the rate of reaction i is the rate constant for that reaction multiplied by the product of all
         # concentrations on the left-hand side of the reaction (or the opposite for the reverse reactions)
         rate_reaction_vector = []
-        for i,indices in enumerate(self.rate_indices):
+        for indices_and_coefficients in self.species_indices_and_coefficients:
             product = 1.0
-            for j in indices:
-                product *= concentration_vector[j]
+            for index,coefficient in indices_and_coefficients:
+                product *= concentration_vector[index] ** coefficient if coefficient > 1 else concentration_vector[index]
             rate_reaction_vector.append(product)
         rate_reaction_vector = np.array(rate_reaction_vector) 
         rate_reaction_vector = self.rate_constant_vector * rate_reaction_vector
@@ -307,7 +322,8 @@ class Network():
 
         assert isinstance(t_span, tuple), f"expected times to be given as a tuple, got {type(t_span)} instead"
         assert len(t_span) == 2, f"tuple should be length 2"
-        assert isinstance(t_eval, np.ndarray), f"expected evaluation times to be np.ndarray but got {type(t_eval)} instead"
+        if t_eval is not None:
+            assert isinstance(t_eval, np.ndarray), f"expected evaluation times to be np.ndarray but got {type(t_eval)} instead"
 
         assert isinstance(method, str), f"expected str for method but got {type(method)}"
 

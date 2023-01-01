@@ -9,12 +9,12 @@ class TestSpecies(unittest.TestCase):
         species = Species("MeOH", "methanol")
         self.assertEqual(species.abbreviation, "MeOH")
         self.assertEqual(species.description, "methanol")
-        self.assertEqual(str(species), "Reagent (MeOH)")
+        self.assertEqual(str(species), "Species (MeOH)")
 
         species = Species("A")
         self.assertEqual(species.abbreviation, "A")
         self.assertEqual(species.description, "A")
-        self.assertEqual(str(species), "Reagent (A)")
+        self.assertEqual(str(species), "Species (A)")
 
 class TestReaction(unittest.TestCase):
     def test_constructor_simple(self):
@@ -61,10 +61,10 @@ class TestReaction(unittest.TestCase):
             species_B = Species("B")
             reaction = Reaction({species_A:-1}, species_B)
 
-    def test_duplicate_species(self):
-        with self.assertRaises(AssertionError):
-            species_A = Species("A")
-            reaction = Reaction(species_A, species_A)
+    # def test_duplicate_species(self):
+    #     with self.assertRaises(AssertionError):
+    #         species_A = Species("A")
+    #         reaction = Reaction(species_A, species_A)
 
 class TestNetwork(unittest.TestCase):
     def test1(self):
@@ -147,6 +147,12 @@ class TestNetwork(unittest.TestCase):
         concentrations_df["sum"] = concentrations_df.A + concentrations_df.B
         expected_sum = np.ones_like(concentrations_df["sum"])
         self.assertTrue(np.allclose(concentrations_df["sum"], expected_sum))
+
+    def test_catalyst(self):
+        pass
+
+    def test_coefficient_multiplicity(self):
+        pass
 
 if __name__ == "__main__":
     unittest.main()
