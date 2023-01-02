@@ -149,10 +149,91 @@ class TestNetwork(unittest.TestCase):
         self.assertTrue(np.allclose(concentrations_df["sum"], expected_sum))
 
     def test_catalyst(self):
-        pass
+        species_A = Species("A")
+        species_B = Species("B")
+        species_C = Species("C")
+
+        reactants = { 
+                        species_A : 1,
+                        species_C : 1
+                    }
+
+        products = {
+                        species_B : 1,
+                        species_C : 1
+                    }
+
+        # A + C == B + C
+        reaction = Reaction(reactants, products, reversible=True)
+
+        reactions_dict = {reaction : (2.0,0.0)}
+        network = Network(reactions_dict, fixed_concentrations=None)
+
+        # check stoichiometry matrix
+        expected_stoichiometry_matrix = [[-1.,  1.],
+                                         [ 1., -1.],
+                                         [ 0.,  0.]]
+        self.assertTrue(np.allclose(network.stoichiometry_matrix, expected_stoichiometry_matrix))
+        
+        # check rate calculation
+        # forward for A: -2.0*0.4*0.6=-0.48
+        # forward for B: 2.0*0.4*0.6=+0.48
+        concentration_vector = np.array([0.4,0.5,0.6])
+        expected_rate_vector = np.array([-0.48, 0.48, 0.0])
+        rate_vector = network.get_rate_vector(concentration_vector)
+        self.assertTrue(np.allclose(rate_vector, expected_rate_vector))
+
+        # reverse for A: 3.0*0.5*0.6=0.9
+        # reverse for B: -3.0*0.5*0.6=-0.9
+        reactions_dict = {reaction : (0.0,3.0)}
+        network = Network(reactions_dict, fixed_concentrations=None)
+        expected_rate_vector = np.array([0.9, -0.9, 0.0])
+        rate_vector = network.get_rate_vector(concentration_vector)
+        self.assertTrue(np.allclose(rate_vector, expected_rate_vector))
+
+        # forward and reverse for A: -0.48+0.9 = 0.42
+        # forward and reverse for B: 0.48-0.9 = -0.42
+        reactions_dict = {reaction : (2.0,3.0)}
+        network = Network(reactions_dict, fixed_concentrations=None)
+        expected_rate_vector = np.array([0.42, -0.42, 0.0])
+        rate_vector = network.get_rate_vector(concentration_vector)
+        self.assertTrue(np.allclose(rate_vector, expected_rate_vector))
+
 
     def test_coefficient_multiplicity(self):
-        pass
+        species_A = Species("A")
+        species_B = Species("B")
+        species_C = Species("C")
+
+        reactants = { 
+                        species_A : 2,
+                        species_B : 3,
+                    }
+
+        products = {
+                        species_A : 4,
+                        species_B : 2,
+                    }
+
+        # 2A + 3B --> 4A + 2B
+        reaction = Reaction(reactants, products, reversible=True)
+
+        reactions_dict = {reaction : (5.0,6.0)}
+        network = Network(reactions_dict, fixed_concentrations=None)
+
+        # check stoichiometry matrix
+        expected_stoichiometry_matrix = [[  2,  -2],
+                                         [ -1,  1]]
+        self.assertTrue(np.allclose(network.stoichiometry_matrix, expected_stoichiometry_matrix))
+
+        # check rate calculation
+        # A: +2.0*5.0*0.4^2*0.5^3 - 2.0*6.0*0.4^4*0.5^2 = 0.1232
+        # B:     -5.0*0.4^2*0.5^3 +     6.0*0.4^4*0.5^2 = -0.0616
+        concentration_vector = np.array([0.4,0.5])
+        expected_rate_vector = np.array([0.1232, -0.0616])
+        rate_vector = network.get_rate_vector(concentration_vector)
+        self.assertTrue(np.allclose(rate_vector, expected_rate_vector))
+
 
 if __name__ == "__main__":
     unittest.main()
