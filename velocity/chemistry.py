@@ -33,7 +33,7 @@ class Species():
         self.description = description
 
     def __str__(self):
-        return f"Species ({self.abbreviation})"
+        return f"Species ({self.abbreviation}={self.description})"
 
     def __repr__(self):
         return str(self)
@@ -306,7 +306,7 @@ class Network():
         if isinstance(initial_concentrations, dict):
             for k,v in initial_concentrations.items():
                 assert isinstance(k, Species), f"expected Species got {type(k)}"
-                assert k in self.species, f"Species {k} not in this Network"
+                assert k in self.species, f"{k} not in this Network"
                 assert v >= 0.0, f"concentration of {k} must be non-negative"
             initial_concentrations = [initial_concentrations[s] if s in initial_concentrations else 0.0 for s in self.species]
             assert np.sum(initial_concentrations) > 0.0, "must have at least one non-zero initial concentration"
