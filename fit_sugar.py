@@ -6,7 +6,7 @@ import lmfit, tqdm
 
 # settings
 observations_filename = "observations.xlsx"  # spreadsheet filename
-mode = "complex"                              # whether to include the intermediate in the
+mode = "simple"                              # whether to include the intermediate in the
                                              # kinetic model: "simple" or "complex"
 
 # for all models
@@ -96,6 +96,7 @@ parameter = lmfit.Parameter(
     max = max_log10_catalyst_deactivation_rate_constant, 
 )
 parameters.add(parameter)
+parameters.pretty_print()
 print(f"There are {len(parameters)} parameters.")
 
 # represents a single experimental isomerization run
@@ -245,6 +246,8 @@ def trial(x):
 
     # aggregate losses
     loss = rms(losses)
+
+    #
     print(f"  ::: {loss:8.4f}", flush=True)
     return loss
 
@@ -271,4 +274,7 @@ def loss_function(experimental_run, concentrations_df):
     # print(rms(losses))
     return rms(losses)
 
-trial(parameters)
+# run the optimization
+def iter_cb(parameters, iteration, residual):
+    print(f"iteration {iteration:5d}   loss = {residual:12.4f}", flush=True)
+output = lmfit.minimize(trial, parameters, method="differential_evolution", iter_cb=iter_cb)
