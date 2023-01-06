@@ -159,6 +159,7 @@ def simulate_and_graph(n_clicks, parameters_dict):
             count += 1 
             bar = go.Bar(name=label, x=sugar_abbreviations, y=df_row, marker_color=colors[count])
             fig.add_trace(bar, row=row, col=col)
+        fig.update_yaxes(range=[0,1], row=row, col=col)
     fig.update_layout(barmode="group", showlegend=False, height=500)
     return fig
 

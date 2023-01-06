@@ -70,6 +70,12 @@ def add(reactions_dict, mode,
         reaction = Reaction({sugar1:1, catalyst_active:1}, {sugar2:1, catalyst_active:1}, reversible=True)
         reactions_dict[reaction] = (jk1,jk2)
 
+def convert(selectivity):
+    selectivity= float(selectivity)
+    if selectivity < 0.0:
+        selectivity = -1/selectivity
+    return selectivity
+
 def create_network(parameters, sugars, intermediates, catalyst_active, catalyst_dead):
     reactions_dict = {}
     x = parameters
@@ -79,17 +85,17 @@ def create_network(parameters, sugars, intermediates, catalyst_active, catalyst_
 
     if mode == "simple":
         for connection in CONNECTIONS:
-            base_rate_constant = float(x[f"{connection}_base"])*conversion #np.power(10, x[f"{connection}_log10_base_rate_constant"])
-            overall_selectivity = float(x[f"{connection}_overall"]) #np.power(10, x[f"{connection}_log10_overall_selectivity"])
+            base_rate_constant = float(x[f"{connection}_base"])*conversion 
+            overall_selectivity = convert(x[f"{connection}_overall"])
             add(reactions_dict, mode,
                 sugars_dict, intermediates, catalyst_active,
                 connection, base_rate_constant,
                 overall_selectivity=overall_selectivity)
     elif mode == "complex":
         for connection in CONNECTIONS:
-            base_rate_constant = float(x[f"{connection}_base"])*conversion #np.power(10, x[f"{connection}_log10_base_rate_constant"])
-            ablation_selectivity = float(x[f"{connection}_ablation"]) #np.power(10, x[f"{connection}_log10_ablation_selectivity"])
-            regeneration_selectivity = float(x[f"{connection}_regeneration"]) #np.power(10, x[f"{connection}_log10_regeneration_selectivity"])
+            base_rate_constant = float(x[f"{connection}_base"])*conversion 
+            ablation_selectivity = convert(x[f"{connection}_ablation"]) 
+            regeneration_selectivity = convert(x[f"{connection}_regeneration"]) 
             add(reactions_dict, mode,
                 sugars_dict, intermediates, catalyst_active,
                 connection, base_rate_constant,
@@ -100,59 +106,6 @@ def create_network(parameters, sugars, intermediates, catalyst_active, catalyst_
     
     network = Network(reactions_dict, fixed_concentrations=None)
     return network
-
-def create_parameters(mode="simple", verbose=False):
-    # create parameters to be fit
-    assert mode in ["simple", "complex"]
-    parameters = lmfit.Parameters()
-    for connection in CONNECTIONS:
-        parameter = lmfit.Parameter(
-            name = f"{connection}_log10_base_rate_constant",
-            min = min_log10_base_rate_constant,
-            value = default_log10_base_rate_constant,
-            max = max_log10_base_rate_constant, 
-        )
-        parameters.add(parameter)
-
-        if mode == "simple":
-            parameter = lmfit.Parameter(
-                name = f"{connection}_log10_overall_selectivity",
-                min = min_log10_overall_selectivity,
-                value = default_log10_overall_selectivity,
-                max = max_log10_overall_selectivity, 
-            )
-            parameters.add(parameter)
-
-        elif mode == "complex":
-            parameter = lmfit.Parameter(
-                name = f"{connection}_log10_ablation_selectivity",
-                min = min_log10_ablation_selectivity,
-                value = default_log10_ablation_selectivity,
-                max = max_log10_ablation_selectivity, 
-            )
-            parameters.add(parameter)
-
-            parameter = lmfit.Parameter(
-                name = f"{connection}_log10_regeneration_selectivity",
-                min = min_log10_regeneration_selectivity,
-                value = default_log10_regeneration_selectivity,
-                max = max_log10_regeneration_selectivity, 
-            )
-            parameters.add(parameter)
-
-    parameter = lmfit.Parameter(
-        name = f"log10_catalyst_deactivation_rate_constant",
-        min = min_log10_catalyst_deactivation_rate_constant,
-        value = default_log10_catalyst_deactivation_rate_constant,
-        max = max_log10_catalyst_deactivation_rate_constant, 
-    )
-    parameters.add(parameter)
-
-    if verbose:
-        parameters.pretty_print()
-        print(f"There are {len(parameters)} parameters.")
-
-    return parameters
 
 # represents a single experimental isomerization run
 class ExperimentalRun():
@@ -223,11 +176,7 @@ def read_experimental_runs(observations_filename, sugars, verbose=False):
 
     return experimental_runs, t_span, t_eval
 
-# root mean square average
-def rms(x):
-    assert isinstance(x, (list,np.ndarray))
-    assert len(x) > 0
-    return np.sqrt(np.mean(np.square((x))))
+
 
 def simulate(network, catalyst_active, experimental_runs, t_span, t_eval):
     # run simulations
@@ -244,45 +193,4 @@ def simulate(network, catalyst_active, experimental_runs, t_span, t_eval):
     return results
 
 
-# simulate each experimental run for one set of parameters
-def generate_trial_function(sugars, intermediates, catalyst_active, catalyst_dead):
-    def trial(parameters):
-        network = create_network(parameters, sugars, intermediates, catalyst_active, catalyst_dead)
-
-        # run simulations
-        losses = []
-        #parameters.pretty_print()
-        for i,run in enumerate(experimental_runs, start=1):
-            initial_concentrations_dict = {
-                run.starting_sugar : 1.0,
-                catalyst_active : 1.0
-            }
-            concentrations_df = network.simulate_timecourse(initial_concentrations_dict, t_span, t_eval)
-            loss = loss_function(run, concentrations_df)
-            print(f"{loss:8.4f} ", end="", flush=True)
-            losses.append(loss)
-
-        # aggregate losses
-        loss = rms(losses)
-
-        # give status update
-        #print(f"  ::: {loss:8.4f}", flush=True)
-        return loss
-    return trial
-
-# calculate the loss for a single simulation
-# treats all runs with same weight regardless of number of observations
-def loss_function(experimental_run, concentrations_df):
-    losses = []
-    for t,observed in zip(experimental_run.observation_times, experimental_run.observations):
-        df = concentrations_df.query(f"index == {t}")
-        assert len(df) == 1
-        simulated = concentrations_df.tail(1)[sugar_abbreviations].iloc[0].to_numpy()
-        loss = rms(simulated-observed)
-        losses.append(loss)
-    return rms(losses)
-
-# run the optimization
-def iter_cb(parameters, iteration, residual):
-    print(f"iteration {iteration:5d}   loss = {residual:12.4f}", flush=True)
 
