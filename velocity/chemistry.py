@@ -339,3 +339,84 @@ class Network():
         concentrations_df.index = solution.t
         concentrations_df.index.name = "time"
         return concentrations_df
+
+class Addition():
+    """Represents an addition of various Species to an Experiment.
+
+    This includes the addition at t=0.
+
+    new_concentrations = old_concentrations * dilution_factor + added_concentrations
+
+    Attributes:
+        experiment (Experiment): Which experiment this Addition is attached to.
+        concentrations_dict (dict): { Species : concentration (float) }, the concentrations in the addition.
+                                    Species that are not included will be assumed to have no additional concentration.
+        dilution_factor (float, optional): The factor by which to correct the decrease in concentration to account for dilution
+                                           (default=1.0, meaning do not dilute).
+    """
+    def __init__(self, experiment, concentrations_dict, dilution_factor=1.0):
+        assert isinstance(experiment, Experiment)
+        assert isinstance(concentrations_dict, dict)
+        for species,concentration in concentrations_dict.items():
+            assert isinstance(species, Species)
+            assert species in experiment.network.species
+            assert isinstance(concentration, float)
+            assert concentration >= 0.0
+        self.concentrations_dict = concentrations_dict
+        assert 0.0 <= isinstance(dilution_factor) <= 1.0
+        self.dilution_factor = dilution_factor
+
+class Experiment():
+    """Represents a kinetics experiment.
+
+    You can simulate the timecourse of the experiment with the addition of more reagents
+    and calculate a loss vs. observed concentrations.
+
+    Attributes:
+        network (Network): The reaction network.
+        initial_concentrations_dict (dict): { Species : concentration (float) } at the beginning of the experiment.
+        additions (list): [ (time (in seconds, float), Addition), ... ]
+        observations (dict): { time (in seconds, float) : [ concentrations (float) in network.species order ] }
+        max_time (float): When the end of the experiment is in seconds.
+        eval_times (list or np.array, optional): Times when we want explicit concentrations to be calculated (default=[]).
+    """
+    def __init__(self, network, initial_concentrations_dict, max_time, eval_times=[]):
+        assert isinstance(network, Network)
+        self.network = network
+
+        # setup the initial addition of reagents
+        self.addition = Addition(self, initial_concentrations_dict)
+        self.additions = []
+
+        assert isinstance(max_time, (float, int))
+        assert max_time > 0.0
+        self.max_time = float(max_time)
+
+        if isinstance(eval_times, np.ndarray):
+            assert len(eval_times.shape) == 1
+            eval_times = list(eval_times)
+        assert isinstance(eval_times, list)
+        for i,t in enumerate(eval_times):
+            assert 0.0 <= t <= max_time
+            if i > 0:
+                assert t > eval_times[i-1]
+
+    def add_reagents(self, time, concentrations_dict):
+        """Schedule the addition of reagents.
+
+        Args:
+            time (float): When to add the reagents in seconds.
+            concentrations_dict: { Species : concentration (float) }, the concentrations in the addition.
+        """
+        assert isinstance(time, (float, int))
+        assert time > 0
+        if len(self.additions) > 0:
+            last_addition = self.additions[-1]
+            last_time = last_addition[0]
+            assert last_time < time < self.max_time
+        addition = Addition(self, concentrations_dict)
+        self.additions.append((time, addition))
+        
+
+    def add_observation(self, time, concentrations_dict):
+        pass
