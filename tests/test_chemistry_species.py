@@ -1,8 +1,13 @@
+"""This module tests chemistry.Species.
+"""
+
 import pytest
 from velocity.chemistry import Species, Reaction, Network
 import numpy as np
 
 def test_constructor():
+    """Make some simple Species objects.
+    """
     species = Species("MeOH", "methanol")
     assert species.abbreviation == "MeOH"
     assert species.description == "methanol"
