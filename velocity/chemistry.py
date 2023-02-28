@@ -323,6 +323,10 @@ class Network():
         assert isinstance(t_span, tuple), f"expected times to be given as a tuple, got {type(t_span)} instead"
         assert len(t_span) == 2, f"tuple should be length 2"
         if t_eval is not None:
+            if isinstance(t_eval, (int,float)):
+                t_eval = [t_eval]
+            if isinstance(t_eval, list):
+                t_eval = np.array(t_eval)
             assert isinstance(t_eval, np.ndarray), f"expected evaluation times to be np.ndarray but got {type(t_eval)} instead"
 
         assert isinstance(method, str), f"expected str for method but got {type(method)}"
@@ -345,17 +349,15 @@ class Addition():
 
     This includes the addition at t=0.
 
-    new_concentrations = old_concentrations * dilution_factor + added_concentrations
-
     Attributes:
         experiment (Experiment): Which experiment this Addition is attached to.
         concentrations_dict (dict): { Species : concentration (float) }, the concentrations in the addition.
                                     Species that are not included will be assumed to have no additional concentration.
-        dilution_factor (float, optional): The factor by which to correct the decrease in concentration to account for dilution
-                                           (default=1.0, meaning do not dilute).
+        volume (float): The volume of the aliquot to add, in the same arbitrary units as experiment.initial_volume.
     """
-    def __init__(self, experiment, concentrations_dict, dilution_factor=1.0):
+    def __init__(self, experiment, concentrations_dict, volume):
         assert isinstance(experiment, Experiment)
+
         assert isinstance(concentrations_dict, dict)
         for species,concentration in concentrations_dict.items():
             assert isinstance(species, Species)
@@ -363,8 +365,16 @@ class Addition():
             assert isinstance(concentration, float)
             assert concentration >= 0.0
         self.concentrations_dict = concentrations_dict
-        assert 0.0 <= isinstance(dilution_factor) <= 1.0
-        self.dilution_factor = dilution_factor
+
+        if volume != None:
+            if isinstance(volume, int):
+                volume = float(volume)
+            assert isinstance(volume, float)
+            assert volume > 0.0
+        self.volume = volume
+
+    def __repr__(self):
+        return f"Addition (volume={self.volume}, {str(self.concentrations_dict)})"
 
 class Experiment():
     """Represents a kinetics experiment.
@@ -375,18 +385,28 @@ class Experiment():
     Attributes:
         network (Network): The reaction network.
         initial_concentrations_dict (dict): { Species : concentration (float) } at the beginning of the experiment.
+        max_time (float): When the end of the experiment is in seconds.
+        initial_volume (float, optional): The initial volume of the vessel (in arbitrary units).
+        eval_times (list or np.array, optional): Times when we want explicit concentrations to be calculated (default=[]).
+
         additions (list): [ (time (in seconds, float), Addition), ... ]
         observations (dict): { time (in seconds, float) : [ concentrations (float) in network.species order ] }
-        max_time (float): When the end of the experiment is in seconds.
-        eval_times (list or np.array, optional): Times when we want explicit concentrations to be calculated (default=[]).
     """
-    def __init__(self, network, initial_concentrations_dict, max_time, eval_times=[]):
+    def __init__(self, network, initial_concentrations_dict, max_time, initial_volume=None, eval_times=[]):
         assert isinstance(network, Network)
         self.network = network
 
+        if initial_volume is not None:
+            if isinstance(initial_volume, int):
+                initial_volume = float(initial_volume)
+            assert isinstance(initial_volume, float)
+            assert initial_volume > 0.0
+        self.initial_volume = initial_volume
+
         # setup the initial addition of reagents
-        self.addition = Addition(self, initial_concentrations_dict)
-        self.additions = []
+        initial_addition = Addition(self, initial_concentrations_dict, initial_volume)
+        self.initial_concentrations_dict = initial_concentrations_dict
+        self.additions = [(0.0,initial_addition)]
 
         assert isinstance(max_time, (float, int))
         assert max_time > 0.0
@@ -400,23 +420,111 @@ class Experiment():
             assert 0.0 <= t <= max_time
             if i > 0:
                 assert t > eval_times[i-1]
+        self.eval_times = eval_times
 
-    def add_reagents(self, time, concentrations_dict):
+    def schedule_addition(self, when, what, volume):
         """Schedule the addition of reagents.
 
+        Additions must be scheduled in ascending chronological order.
+
         Args:
-            time (float): When to add the reagents in seconds.
-            concentrations_dict: { Species : concentration (float) }, the concentrations in the addition.
+            when (float): When to add the reagents (in seconds).
+            what: What to add: { Species : concentration (float) }.
+            volume: The volume of the aliquot.
         """
-        assert isinstance(time, (float, int))
-        assert time > 0
+        assert self.initial_volume is not None, "cannot schedule additions if the initial volume is not specified"
+        assert isinstance(when, (float, int))
+        assert when > 0
         if len(self.additions) > 0:
             last_addition = self.additions[-1]
             last_time = last_addition[0]
-            assert last_time < time < self.max_time
-        addition = Addition(self, concentrations_dict)
-        self.additions.append((time, addition))
-        
+            assert last_time < when < self.max_time
+
+        assert isinstance(what, dict)
+
+        if isinstance(volume, int):
+            volume = float(volume)
+        assert isinstance(volume, float)
+        assert volume > 0.0
+        self.volume = volume
+        addition = Addition(self, what, volume)
+
+        self.additions.append((when, addition))
+
+    def simulate(self):
+        """Numerically integrate the rate equations, incorporating any scheduled additions.
+
+        Sets self.df (pd.DataFrame).  Columns are species abbreviations, index is time.
+        """
+
+        # contain the concentrations vs. time data as one df per segment
+        dfs = []
+
+        # split the simulation into different segments
+        #
+        # where t_span = (start_time, end_time)
+        # and t_eval = [start_time, intermediate_times ..., end_time] 
+        volume = self.initial_volume
+
+        for i,addition_tuple in enumerate(self.additions):
+            # pull out the times for this segment
+            segment_start_time,addition = addition_tuple
+            segment_end_time = self.additions[i+1][0] if i < len(self.additions) - 1 else self.max_time
+            t_span = (segment_start_time, segment_end_time)
+
+            # ensure that we get back the concentrations at the start and end of the segment
+            t_eval = [ t for t in self.eval_times if segment_start_time <= t < segment_end_time ]
+            if self.eval_times[-1] == segment_end_time:
+                t_eval.append(self.eval_times[-1])
+
+            if volume:
+                # volumes have been provided
+                if i == 0:
+                    # this is the initial charge
+                    concentrations = addition.concentrations_dict
+                else:
+                    # these are additions, so go from concentration and volume to moles
+                    current_moles = { species_abbreviation : concentration*volume 
+                                      for species_abbreviation,concentration in concentrations.items() }
+                    additional_moles = { species_abbreviation : concentration*addition.volume 
+                                         for species_abbreviation,concentration in addition.concentrations_dict.items() }
+
+                    # add up the moles
+                    for s,m in additional_moles.items():
+                        if s in current_moles:
+                            current_moles[s] += m
+                        else:
+                            current_moles[s] = m
+
+                    # divide by total volume to get concentrations again
+                    volume += addition.volume
+                    for s,m in current_moles.items():
+                        current_moles[s] = m/volume
+                    concentrations = current_moles
+            else:
+                # this is a single addition with no provided volume, so don't dilute
+                concentrations = addition.concentrations_dict
+
+            # run the simulation
+            print("---")
+            print(f"{concentrations=}")
+            print(f"{t_span=}")
+            print(f"{t_eval=}")
+            print("---")
+            df = self.network.simulate_timecourse(concentrations, t_span, t_eval)
+            
+            # store the result
+            dfs.append(df)
+            last_row = df.iloc[-1]
+            concentrations = { self.network.species[i] : concentration for i,concentration in enumerate(last_row) }
+            #print(concentrations)
+
+        # combine results
+        self.df = pd.concat(dfs)
+
+
+
+
 
     def add_observation(self, time, concentrations_dict):
         pass
