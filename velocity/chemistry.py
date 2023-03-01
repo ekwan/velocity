@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.integrate import solve_ivp
 import pandas as pd
+from functools import reduce
 
 class Species():
     """ This represents a single chemical species.
@@ -126,7 +127,7 @@ class Network():
                                                        (a single float for irreversible reactions and a tuple of two floats
                                                         for reversible reactions corresponding to the forward and reverse
                                                         rate constants in that order)
-            fixed_concentrations (None or :obj:`list` of Species): these concentrations will not be updated (default: None)
+            fixed_concentrations (None or Species or :obj:`list` of Species): these concentrations will not be updated (default: None)
         """
         # initialize fields
         species = set()
@@ -168,6 +169,8 @@ class Network():
         # check fixed concentrations
         if fixed_concentrations is None:
             fixed_concentrations = []
+        if isinstance(fixed_concentrations, Species):
+            fixed_concentrations = [fixed_concentrations]
         for s in fixed_concentrations:
             assert isinstance(s, Species), f"expected Species but got {type(s)}"
             assert s in species, f"{s} is not in this reaction network"
@@ -299,7 +302,7 @@ class Network():
                 method (str): see documentation for scipy.integrate.solve_ivp, defaults to "RK45"
 
             Returns:
-                concentrations_df: rows are times, columns are species
+                concentrations_df: rows are times, columns are species (column names are species abbreviations)
         """
 
         # check inputs and convert them to a concentration vector
@@ -344,19 +347,24 @@ class Network():
         concentrations_df.index.name = "time"
         return concentrations_df
 
-class Addition():
+class Segment():
     """Represents an addition of various Species to an Experiment.
-
-    This includes the addition at t=0.
 
     Attributes:
         experiment (Experiment): Which experiment this Addition is attached to.
+        duration (float): How long to wait after adding the reagents.
         concentrations_dict (dict): { Species : concentration (float) }, the concentrations in the addition.
                                     Species that are not included will be assumed to have no additional concentration.
         volume (float): The volume of the aliquot to add, in the same arbitrary units as experiment.initial_volume.
     """
-    def __init__(self, experiment, concentrations_dict, volume):
+    def __init__(self, experiment, duration, concentrations_dict, volume):
         assert isinstance(experiment, Experiment)
+
+        if isinstance(duration, int):
+            duration = int(duration)
+        assert isinstance(duration, float)
+        assert duration >= 0.0
+        self.duration = duration
 
         assert isinstance(concentrations_dict, dict)
         for species,concentration in concentrations_dict.items():
@@ -366,15 +374,14 @@ class Addition():
             assert concentration >= 0.0
         self.concentrations_dict = concentrations_dict
 
-        if volume != None:
-            if isinstance(volume, int):
-                volume = float(volume)
-            assert isinstance(volume, float)
-            assert volume > 0.0
+        if isinstance(volume, int):
+            volume = float(volume)
+        assert isinstance(volume, float)
+        assert volume > 0.0
         self.volume = volume
 
     def __repr__(self):
-        return f"Addition (volume={self.volume}, {str(self.concentrations_dict)})"
+        return f"Addition (duration={self.duration}, volume={self.volume}, {str(self.concentrations_dict)})"
 
 class Experiment():
     """Represents a kinetics experiment.
@@ -384,147 +391,110 @@ class Experiment():
 
     Attributes:
         network (Network): The reaction network.
-        initial_concentrations_dict (dict): { Species : concentration (float) } at the beginning of the experiment.
-        max_time (float): When the end of the experiment is in seconds.
-        initial_volume (float, optional): The initial volume of the vessel (in arbitrary units).
         eval_times (list or np.array, optional): Times when we want explicit concentrations to be calculated (default=[]).
-
-        additions (list): [ (time (in seconds, float), Addition), ... ]
-        observations (dict): { time (in seconds, float) : [ concentrations (float) in network.species order ] }
+                                                 Must be monotonically increasing and cannot go beyond the total duration
+                                                 of the segments.
     """
-    def __init__(self, network, initial_concentrations_dict, max_time, initial_volume=None, eval_times=[]):
+    def __init__(self, network, eval_times=[]):
         assert isinstance(network, Network)
         self.network = network
-
-        if initial_volume is not None:
-            if isinstance(initial_volume, int):
-                initial_volume = float(initial_volume)
-            assert isinstance(initial_volume, float)
-            assert initial_volume > 0.0
-        self.initial_volume = initial_volume
-
-        # setup the initial addition of reagents
-        initial_addition = Addition(self, initial_concentrations_dict, initial_volume)
-        self.initial_concentrations_dict = initial_concentrations_dict
-        self.additions = [(0.0,initial_addition)]
-
-        assert isinstance(max_time, (float, int))
-        assert max_time > 0.0
-        self.max_time = float(max_time)
+        self.segments = []
 
         if isinstance(eval_times, np.ndarray):
             assert len(eval_times.shape) == 1
             eval_times = list(eval_times)
         assert isinstance(eval_times, list)
         for i,t in enumerate(eval_times):
-            assert 0.0 <= t <= max_time
             if i > 0:
                 assert t > eval_times[i-1]
         self.eval_times = eval_times
 
-    def schedule_addition(self, when, what, volume):
-        """Schedule the addition of reagents.
-
-        Additions must be scheduled in ascending chronological order.
+    def schedule_segment(self, duration, concentrations, volume):
+        """Schedule the next reagent addition.
 
         Args:
-            when (float): When to add the reagents (in seconds).
-            what: What to add: { Species : concentration (float) }.
-            volume: The volume of the aliquot.
+            duration (float): How long to wait after adding the reagents.
+            concentrations (dict): { Species : concentration (float) }, the concentrations in the addition.
+                                   Species that are not included will be assumed to have no additional concentration.
+            volume (float): The volume of the aliquot to add, in the same arbitrary units as experiment.initial_volume.
         """
-        assert self.initial_volume is not None, "cannot schedule additions if the initial volume is not specified"
-        assert isinstance(when, (float, int))
-        assert when > 0
-        if len(self.additions) > 0:
-            last_addition = self.additions[-1]
-            last_time = last_addition[0]
-            assert last_time < when < self.max_time
-
-        assert isinstance(what, dict)
-
-        if isinstance(volume, int):
-            volume = float(volume)
-        assert isinstance(volume, float)
-        assert volume > 0.0
-        self.volume = volume
-        addition = Addition(self, what, volume)
-
-        self.additions.append((when, addition))
+        segment = Segment(self, duration, concentrations, volume)
+        self.segments.append(segment)
 
     def simulate(self):
         """Numerically integrate the rate equations, incorporating any scheduled additions.
 
         Sets self.df (pd.DataFrame).  Columns are species abbreviations, index is time.
         """
+        assert len(self.segments) > 0, "can't simulate if no additions have been scheduled"
+        if len(self.eval_times) > 0:
+            total_duration = reduce(lambda current_sum, segment : current_sum + segment.duration, self.segments, 0.0)
+            for t in self.eval_times:
+                assert t <= total_duration, f"eval time {t} is out of range"
 
-        # contain the concentrations vs. time data as one df per segment
+        # compute one dataframe containing the concentrations for each segment
         dfs = []
-
-        # split the simulation into different segments
-        #
-        # where t_span = (start_time, end_time)
-        # and t_eval = [start_time, intermediate_times ..., end_time] 
-        volume = self.initial_volume
-
-        for i,addition_tuple in enumerate(self.additions):
-            # pull out the times for this segment
-            segment_start_time,addition = addition_tuple
-            segment_end_time = self.additions[i+1][0] if i < len(self.additions) - 1 else self.max_time
-            t_span = (segment_start_time, segment_end_time)
-
-            # ensure that we get back the concentrations at the start and end of the segment
-            t_eval = [ t for t in self.eval_times if segment_start_time <= t < segment_end_time ]
-            if self.eval_times[-1] == segment_end_time:
-                t_eval.append(self.eval_times[-1])
-
-            if volume:
-                # volumes have been provided
-                if i == 0:
-                    # this is the initial charge
-                    concentrations = addition.concentrations_dict
-                else:
-                    # these are additions, so go from concentration and volume to moles
-                    current_moles = { species_abbreviation : concentration*volume 
-                                      for species_abbreviation,concentration in concentrations.items() }
-                    additional_moles = { species_abbreviation : concentration*addition.volume 
-                                         for species_abbreviation,concentration in addition.concentrations_dict.items() }
-
-                    # add up the moles
-                    for s,m in additional_moles.items():
-                        if s in current_moles:
-                            current_moles[s] += m
-                        else:
-                            current_moles[s] = m
-
-                    # divide by total volume to get concentrations again
-                    volume += addition.volume
-                    for s,m in current_moles.items():
-                        current_moles[s] = m/volume
-                    concentrations = current_moles
+        volume = 0.0
+        concentrations = {}
+        start_time = 0.0
+        for i,segment in enumerate(self.segments):
+            if i == 0:
+                # this is the first segment, so initialize
+                volume = segment.volume
+                concentrations = segment.concentrations_dict
+                end_time = segment.duration
             else:
-                # this is a single addition with no provided volume, so don't dilute
-                concentrations = addition.concentrations_dict
+                # this is the second or later segment
+                start_time = end_time
+                end_time = start_time + segment.duration
+
+                # we are adding more reagents, so account for dilution
+                # start by going to moles
+                current_moles = { species_abbreviation : concentration*volume 
+                                  for species_abbreviation,concentration in concentrations.items() }
+                additional_moles = { species_abbreviation : concentration*segment.volume 
+                                     for species_abbreviation,concentration in segment.concentrations_dict.items() }
+
+                # add up the moles
+                for s,m in additional_moles.items():
+                    if s in current_moles:
+                        current_moles[s] += m
+                    else:
+                        current_moles[s] = m
+
+                # divide by total volume to get concentrations again
+                volume += segment.volume
+                for s,m in current_moles.items():
+                    current_moles[s] = m/volume
+                concentrations = current_moles
+
+            # determine the relevant evaluation times
+            # also ensure that the end of the segment is evaluated,
+            # whether it is requested or not
+            t_eval = [ t for t in self.eval_times if start_time <= t <= end_time ]
+            if t_eval[-1] != end_time:
+                t_eval.append(end_time)
 
             # run the simulation
+            t_span = (start_time, end_time)
+            df = self.network.simulate_timecourse(concentrations, t_span, t_eval)
+
+            # update current concentrations
+            last_row = df.iloc[-1]
+            concentrations = last_row.to_dict()
+
+            # trim the current simulation df if there is another addition coming
+            if i < len(self.segments) - 1:
+                df = df.iloc[:-1,:].copy()
+
             print("---")
+            print(df)
+            print()
             print(f"{concentrations=}")
             print(f"{t_span=}")
             print(f"{t_eval=}")
             print("---")
-            df = self.network.simulate_timecourse(concentrations, t_span, t_eval)
-            
-            # store the result
             dfs.append(df)
-            last_row = df.iloc[-1]
-            concentrations = { self.network.species[i] : concentration for i,concentration in enumerate(last_row) }
-            #print(concentrations)
 
         # combine results
         self.df = pd.concat(dfs)
-
-
-
-
-
-    def add_observation(self, time, concentrations_dict):
-        pass
