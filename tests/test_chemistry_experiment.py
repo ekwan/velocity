@@ -157,6 +157,7 @@ def test_experiment_builder_full(test_system):
     experiment = builder.build()
 
     experiment.simulate()
+    print(experiment.df)
     assert np.allclose(experiment.df.loc[100.0],
                       [np.exp(-0.05*100)*1/1.5 + 2*0.5/1.5,
                        (1.0-np.exp(-0.05*100))*1/1.5],
