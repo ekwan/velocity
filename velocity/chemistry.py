@@ -366,22 +366,165 @@ class Segment():
         assert duration >= 0.0
         self.duration = duration
 
-        assert isinstance(concentrations_dict, dict)
-        for species,concentration in concentrations_dict.items():
-            assert isinstance(species, Species)
-            assert species in experiment.network.species
-            assert isinstance(concentration, float)
-            assert concentration >= 0.0
+        _check_concentrations_dict(experiment.network, concentrations_dict)
         self.concentrations_dict = concentrations_dict
 
-        if isinstance(volume, int):
-            volume = float(volume)
-        assert isinstance(volume, float)
-        assert volume > 0.0
+        _check_volume(volume)
         self.volume = volume
 
     def __repr__(self):
         return f"Addition (duration={self.duration}, volume={self.volume}, {str(self.concentrations_dict)})"
+
+def _check_concentrations_dict(network, concentrations_dict):
+    """Check this dictionary for validity.
+
+    Args:
+        network (Network): The network, so we can figure out what the valide Species are.
+        concentrations_dict (dict): The dict to check.
+
+    Raises:
+        AssertionError
+    """
+    assert isinstance(concentrations_dict, dict)
+    for species,concentration in concentrations_dict.items():
+        assert isinstance(species, Species)
+        assert species in network.species
+        assert isinstance(concentration, float)
+        assert concentration >= 0.0
+
+def _check_volume(volume):
+    """Check this volume for validity.
+
+    Args:
+        volume (int): The volume to check.
+
+    Raises:
+        AssertionError: If the volume is invalid.
+    """
+    if isinstance(volume, int):
+        volume = float(volume)
+    assert isinstance(volume, float)
+    assert volume > 0.0
+
+class ExperimentBuilder():
+    """Tool for scheduling additions to Experiments.
+
+    Use this to specify times, rather than durations.
+
+    Attributes:
+        network (Network): The reaction network.
+        start (tuple): Starting reagent as (concentrations_dict, volume).
+        additions (tuple): Subsequent additions as (concentrations_dict, volume, time).
+        end_time (float): When to stop simulating.
+        eval_times (list of float): Timepoints to report concentrations at.
+    """
+    def __init__(self, network):
+        assert isinstance(network, Network)
+        self.network = network
+        self.eval_times = []
+
+    def build(self):
+        """Create the experiment.
+
+        Raises:
+            AssertionError: If building isn't possible.
+        """
+        assert hasattr(self, "start"), "must schedule start first"
+        assert hasattr(self, "end_time"), "must schedule end first"
+        
+        for t in self.eval_times:
+            assert 0.0 <= t <= self.end_time, f"eval time of {t:.1f} is invalid, must be within 0-{self.end_time:.1f}"
+        self.eval_times = list(sorted(set(self.eval_times)))
+        experiment = Experiment(self.network, self.eval_times)
+        
+        # initial segment
+        initial_concentrations_dict, volume = self.start
+        if not hasattr(self, "additions"):
+            duration = self.end_time
+        else:
+            first_addition = self.additions[0]
+            _, _, first_addition_time = first_addition
+            duration = first_addition_time
+        experiment.schedule_segment(duration=duration, concentrations=initial_concentrations_dict, volume=volume)
+        
+        # any additional segments
+        if hasattr(self, "additions"):
+            for i,(concentrations_dict, volume, time) in enumerate(self.additions):
+                assert time < self.end_time, f"invalid addition time of {time:.1f}, as this is after the end_time of {self.end_time:.1f}"
+                is_last_addition = i == len(self.additions) - 1
+                if not is_last_addition:
+                    duration = self.additions[i+1][2] - time
+                else:
+                    duration = self.end_time - time
+                experiment.schedule_segment(duration=duration, concentrations=concentrations_dict, volume=volume)
+
+        return experiment
+
+    def schedule_start(self, concentrations, volume):
+        """Specify what the experiment will contain initially.
+
+        Args:
+            concentrations (dict): { Species : concentration (float) }, what's present at the beginning.
+            volume (float): Volume at the beginning.        
+        """
+        _check_concentrations_dict(self.network, concentrations)
+        _check_volume(volume)
+        self.start = concentrations, volume
+
+    def schedule_addition(self, concentrations, volume, time):
+        """Add another dose of reagents.
+
+        Additions to not have to be added in chronological order.
+
+        Args:
+            concentrations (dict): { Species : concentration (float) }, what to add.
+            volume (float): The volume of the addition.
+            time (float): When to perform the addition.
+        """
+        _check_concentrations_dict(self.network, concentrations)
+        _check_volume(volume)
+        if isinstance(time, int):
+            time = float(time)
+        assert isinstance(time, float)
+        if not hasattr(self, "additions"):
+            self.additions = []
+        self.additions.append((concentrations, volume, time))
+
+    def schedule_end(self, time):
+        """Set how long we should simulate for.
+
+        Args:
+            time (float): The end of the simulation.
+        """
+        if isinstance(time, int):
+            time = float(time)
+        assert isinstance(time, float)
+        if hasattr(self, "additions"):
+            times = [ t for c,v,t in self.additions ]
+            min_time = times[-1]
+            assert time > min_time, "end of experiment must be after last addition"
+        self.end_time = time
+
+    def add_eval_times(self, times):
+        """Specify some times to return simulation data at.
+
+        Eval times do not have to be added in chronological order.
+        Duplicates will be discarded during the build phase.
+        Invalid times will also be flagged during the build phase.
+
+        Args:
+            times (int, float, list/np.ndarray of float): Add some times to return data at.
+        """
+        if isinstance(times, int):
+            times = float(times)
+        if isinstance(times, float):
+            times = [times]
+        if isinstance(times, np.ndarray):
+            times = list(times)
+        assert isinstance(times, list)
+        for t in times:
+            assert t >= 0.0
+            self.eval_times.append(t)
 
 class Experiment():
     """Represents a kinetics experiment.
