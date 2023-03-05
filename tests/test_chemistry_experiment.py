@@ -20,7 +20,13 @@ def test_simple_experiments():
     initial_concentrations_dict = { species_A : 1.0 }
     eval_times = np.arange(0,210,10)
 
-    print()
+    #print()
+
+    # check that you have to schedule at least one addition
+    with pytest.raises(AssertionError, match="can't simulate if no additions have been scheduled"):
+        network = Network(reactions_dict, fixed_concentrations=None)
+        experiment = Experiment(network, eval_times=eval_times)
+        experiment.simulate()
 
     # with only the initial addition
     network = Network(reactions_dict, fixed_concentrations=None)
@@ -33,29 +39,52 @@ def test_simple_experiments():
     calculated_rate_constant = -np.log(last_timepoint[0]) / 200.0
     assert abs(calculated_rate_constant-rate_constant) < 0.0001
     
-    # # checking you have to give a volume if you want to add
-    # with pytest.raises(AssertionError):
-    #     experiment = Experiment(network, initial_concentrations_dict, max_time=200.0, eval_times=eval_times)
-    #     experiment.schedule_addition(when=100.0, what={ species_A : 0.5 }, volume=1.0)
+    # checking you have to give a volume if you want to add
+    with pytest.raises(TypeError, match="required positional argument: 'volume'"):
+        experiment = Experiment(network, eval_times=eval_times)
+        experiment.schedule_segment(duration=200.0, concentrations=initial_concentrations_dict)
 
-    # # testing dilution only
-    # network = Network(reactions_dict, fixed_concentrations=[species_A, species_B])
-    # experiment = Experiment(network, initial_concentrations_dict, max_time=200.0, eval_times=eval_times, initial_volume=1.0)
-    # experiment.schedule_addition(when=100.0, what={ species_B : 2.0 }, volume=2.0)
-    # experiment.simulate()
-    # for _,row in experiment.df.tail(11).iterrows():
-    #     row = row.to_numpy()
-    #     assert np.allclose(row, [1.0/3.0, 4.0/3.0])
+    # check eval time range
+    with pytest.raises(AssertionError, match="eval time"):
+        network = Network(reactions_dict, fixed_concentrations=None)
+        experiment = Experiment(network, eval_times=[0,500])
+        experiment.schedule_segment(duration=50.0, concentrations=initial_concentrations_dict, volume=1.0)
+        experiment.schedule_segment(duration=100.0, concentrations={species_B:1.0}, volume=1.0)
+        experiment.schedule_segment(duration=150.0, concentrations={species_B:1.0}, volume=1.0)
+        experiment.simulate()
 
-    # with one addition
-    # network = Network(reactions_dict, fixed_concentrations=None)
-    # experiment = Experiment(network, initial_concentrations_dict, max_time=200.0, eval_times=eval_times, initial_volume=1.0)
-    # experiment.schedule_addition(when=100.0, what={ species_A : 2.0 }, volume=1.0)
-    # experiment.simulate()
-    # last_timepoint = experiment.df.iloc[-1].to_numpy()
-    # mass_balance = np.sum(last_timepoint)
-    # assert abs(mass_balance-1.5) < 0.0001
-    # print(experiment.df)
-    #print(np.log(experiment.df))
-    #print(np.exp(-0.05*100)/2.0+1)
 
+    # testing dilution only
+    network = Network(reactions_dict, fixed_concentrations=[species_A, species_B])
+    experiment = Experiment(network, eval_times=eval_times)
+    experiment.schedule_segment(duration=50.0, concentrations=initial_concentrations_dict, volume=1.0)
+    experiment.schedule_segment(duration=50.0, concentrations={species_B:1.0}, volume=1.0)
+    experiment.schedule_segment(duration=100.0, concentrations={species_B:1.0}, volume=1.0)
+    experiment.simulate()
+    assert(np.allclose(experiment.df.loc[10.0],[1.0,0.0], rtol=1e-3, atol=1e-3))
+    assert(np.allclose(experiment.df.loc[50.0],[0.5,0.5], rtol=1e-3, atol=1e-3))
+    assert(np.allclose(experiment.df.loc[100.0],[1.0/3.0, 2.0/3.0], rtol=1e-3, atol=1e-3))
+    assert(np.allclose(experiment.df.loc[200.0],[1.0/3.0, 2.0/3.0], rtol=1e-3, atol=1e-3))
+
+    # test two additions
+    network = Network(reactions_dict)
+    experiment = Experiment(network, eval_times=eval_times)
+    experiment.schedule_segment(duration=100.0, concentrations=initial_concentrations_dict, volume=1.0)
+    experiment.schedule_segment(duration=100.0, concentrations={species_A:2.0}, volume=0.5)
+
+    experiment.simulate()
+    assert np.allclose(experiment.df.loc[100.0],
+                      [np.exp(-0.05*100)*1/1.5 + 2*0.5/1.5,
+                       (1.0-np.exp(-0.05*100))*1/1.5],
+                       rtol=1e-3, atol=1e-3)
+    assert np.allclose(experiment.df.loc[200.0],
+                  [np.exp(-0.05*200)*2/3 + np.exp(-0.05*100)*2/3,
+                   (1.0-np.exp(-0.05*200))*2/3 + (1.0-np.exp(-0.05*100))*2/3],
+                   rtol=1e-3, atol=1e-3)
+
+    experiment.df["mass_balance"] = experiment.df.sum(axis=1)
+    first_half = experiment.df.mass_balance.loc[0.0:90.0]
+    second_half = experiment.df.mass_balance.loc[100.0:200.0]
+    assert np.allclose(first_half, np.ones_like(first_half))
+    assert np.allclose(second_half, np.ones_like(second_half)*4.0/3.0)
+    #print(experiment.df)

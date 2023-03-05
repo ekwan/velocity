@@ -389,6 +389,9 @@ class Experiment():
     You can simulate the timecourse of the experiment with the addition of more reagents
     and calculate a loss vs. observed concentrations.
 
+    Note: If network contains fixed concentrations, that just means that reactions won't change the
+    concentrations.  Diluting the experiment with more additions will still dilute everything.
+
     Attributes:
         network (Network): The reaction network.
         eval_times (list or np.array, optional): Times when we want explicit concentrations to be calculated (default=[]).
@@ -412,17 +415,22 @@ class Experiment():
     def schedule_segment(self, duration, concentrations, volume):
         """Schedule the next reagent addition.
 
+        The first addition is automatically made at the beginning.  Specify the duration of each segment.
+
         Args:
             duration (float): How long to wait after adding the reagents.
             concentrations (dict): { Species : concentration (float) }, the concentrations in the addition.
                                    Species that are not included will be assumed to have no additional concentration.
             volume (float): The volume of the aliquot to add, in the same arbitrary units as experiment.initial_volume.
         """
+        # checks will be made in Segment
         segment = Segment(self, duration, concentrations, volume)
         self.segments.append(segment)
 
     def simulate(self):
         """Numerically integrate the rate equations, incorporating any scheduled additions.
+
+        Calling this twice just re-does the work.
 
         Sets self.df (pd.DataFrame).  Columns are species abbreviations, index is time.
         """
@@ -441,7 +449,7 @@ class Experiment():
             if i == 0:
                 # this is the first segment, so initialize
                 volume = segment.volume
-                concentrations = segment.concentrations_dict
+                concentrations = segment.concentrations_dict   # { Species : concentration }
                 end_time = segment.duration
             else:
                 # this is the second or later segment
@@ -450,10 +458,10 @@ class Experiment():
 
                 # we are adding more reagents, so account for dilution
                 # start by going to moles
-                current_moles = { species_abbreviation : concentration*volume 
-                                  for species_abbreviation,concentration in concentrations.items() }
-                additional_moles = { species_abbreviation : concentration*segment.volume 
-                                     for species_abbreviation,concentration in segment.concentrations_dict.items() }
+                current_moles = { species : concentration*volume 
+                                  for species,concentration in concentrations.items() }
+                additional_moles = { species : concentration*segment.volume 
+                                     for species,concentration in segment.concentrations_dict.items() }
 
                 # add up the moles
                 for s,m in additional_moles.items():
@@ -481,19 +489,19 @@ class Experiment():
 
             # update current concentrations
             last_row = df.iloc[-1]
-            concentrations = last_row.to_dict()
+            concentrations = { species : concentration for species, concentration in zip(self.network.species, last_row) }
 
             # trim the current simulation df if there is another addition coming
             if i < len(self.segments) - 1:
                 df = df.iloc[:-1,:].copy()
 
-            print("---")
-            print(df)
-            print()
-            print(f"{concentrations=}")
-            print(f"{t_span=}")
-            print(f"{t_eval=}")
-            print("---")
+            # print("---")
+            # print(df)
+            # print()
+            # print(f"{concentrations=}")
+            # print(f"{t_span=}")
+            # print(f"{t_eval=}")
+            # print("---")
             dfs.append(df)
 
         # combine results
