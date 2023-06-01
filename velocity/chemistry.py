@@ -363,7 +363,7 @@ class Segment():
         if isinstance(duration, int):
             duration = int(duration)
         assert isinstance(duration, float)
-        assert duration >= 0.0
+        assert duration > 0.0
         self.duration = duration
 
         _check_concentrations_dict(experiment.network, concentrations_dict)
@@ -486,6 +486,7 @@ class ExperimentBuilder():
         if isinstance(time, int):
             time = float(time)
         assert isinstance(time, float)
+        assert time > 0, "if you want to add more at the beginning, use schedule_start()"
         if not hasattr(self, "additions"):
             self.additions = []
         self.additions.append((concentrations, volume, time))
@@ -520,9 +521,10 @@ class ExperimentBuilder():
         if isinstance(times, float):
             times = [times]
         if isinstance(times, np.ndarray):
-            times = list(times)
+            times = [ float(t) for t in times ]
         assert isinstance(times, list)
         for t in times:
+            assert isinstance(t, float)
             assert t >= 0.0
             self.eval_times.append(t)
 
@@ -628,6 +630,8 @@ class Experiment():
 
             # run the simulation
             t_span = (start_time, end_time)
+            #print(t_span, type(t_span))
+            #print(t_eval, type(t_eval))
             df = self.network.simulate_timecourse(concentrations, t_span, t_eval)
 
             # update current concentrations
