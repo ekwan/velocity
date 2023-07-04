@@ -102,6 +102,14 @@ time
 
 You can also specify dosing in segments of defined lengths.  See `tests/test_chemistry_experiment.py:test_two_additions()` for an example.
 
+### Sugar Analysis
+
+This package was developed to analyze the kinetics of interconverting hexoses.  Notebooks and data are provided in the `sugar/` folder:
+
+- `catalyst_deactivation`: assessment of the lifetime of the amine/thiol catalyst system using a multiple dosing strategy
+- `sugar_cube`: kinetic characterization of the interconverting hexoses using timecourse and deuteration data
+- `infinite_time`: allows one to inspect the `sugar_cube` model by starting from arbitrary sugar distributions, with and without catalyst deactivation
+
 ### Tests
 
 To run all the tests, execute these commands in the project root:
@@ -116,6 +124,10 @@ pytest
 Good API-level documentation is available.  These docs can be built with [`pdoc`](https://pdoc.env).  In the project root:
 
 `pdoc --docformat google velocity/*.py -o docs`
+
+### License
+
+This project is licensed under the Apache License, Version 2.0. Please see `LICENSE` for full terms and conditions.
 
 ### Author
 
