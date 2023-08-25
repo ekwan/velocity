@@ -11,4 +11,13 @@ The lowest energy structure from each conformational search was then further opt
 `TS` H atom transfer TS to/from methylglucoside indicated as either H atom abstraction by quinuclidine radical cation at the site indicated (haa) or H atom donation by adamantane thiol at C3 (had). *-ac* indicates the presence of a coordinating acetate molecule. *-all* indicates that the TS was to/from methylalloside.
 
 `Misc` contains other structures used in the study that do not fit into one of the above categories:
-*ac.xyz* (acetate molecule) *all-ac.xyz* (methylalloside coordinated to an acetate molecule) *glc-ac.xyz* (methylglucoside coordinated to an acetate molecule) *haa-c3-4clbenzoate.xyz* (HAA TS at the C3 position of methylglucoside coordinated to a 4-chlorobenzoate molecule) *ipa-rad.xyz* (isopropanol radical used for isodesmic calculations of BDE) *ipa.xyz* (isopropanol used for isodesmic calculations of BDE) *quinH.xyz* (quinuclidinium) *quinradcat.xyz* (quinuclidinium radical cation) *thiol.xyz* (adamantane thiol) *thiyl.xyz* (adamantane thiyl radical)
+* *ac.xyz* (acetate molecule)
+* *all-ac.xyz* (methylalloside coordinated to an acetate molecule)
+* *glc-ac.xyz* (methylglucoside coordinated to an acetate molecule)
+* *haa-c3-4clbenzoate.xyz* (HAA TS at the C3 position of methylglucoside coordinated to a 4-chlorobenzoate molecule)
+* *ipa-rad.xyz* (isopropanol radical used for isodesmic calculations of BDE)
+* *ipa.xyz* (isopropanol used for isodesmic calculations of BDE)
+* *quinH.xyz* (quinuclidinium)
+* *quinradcat.xyz* (quinuclidinium radical cation)
+* *thiol.xyz* (adamantane thiol)
+* *thiyl.xyz* (adamantane thiyl radical)
