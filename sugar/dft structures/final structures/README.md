@@ -2,7 +2,7 @@
 
 ### Final structures
 
-The lowest energy structure from each conformational search was then further optimized using wB97X-D4, ma-def2-tzvp cpcm(acetone). DLPNO-CCSD(T1) aug-cc-pvtz cpcm(acetone) energies were calculated on each of these optimized structures. The title in each *xyz* file contains the energy and gibbs free energy at the DFT level and the energy at the DLPNO-CCSD(T1) level.
+The lowest energy structure from each conformational search was then further optimized using wB97X-D4, ma-def2-tzvp cpcm(acetone). DLPNO-CCSD(T1) aug-cc-pvtz cpcm(acetone) energies were calculated on each of these optimized structures. The structures are sorted in each folder by Gibbs free energy (DFT). The title in each *xyz* file contains the energy and gibbs free energy at the DFT level and the energy at the DLPNO-CCSD(T1) level.
 
 `Glc Radicals` the radicals formed after H atom abstraction at each site of methylglucoside. *-ac* indicates the presence of a coordinated acetate molecule.
 
