@@ -36,7 +36,9 @@ Time course fitting data, results, and analysis scripts.
 
 Stochastic simulations, data, and analysis scripts.
 
-`asymptote-data` asymptote simulation results (conducted to steady state). Each file contains the results of 10_000 simulations. Naming convnetion is `results_(correlation layout)_(rate standard deviation)_(selectivity standard deviation)_(quality correlated)_(type of bias if applied)_(correlation coefficient).csv`
+`asymptote-data` asymptote simulation results (conducted to steady state). Each file contains the results of 10_000 simulations. 
+
+`transient-data` asymptote simulation results (conducted to steady state). Each file contains the results of 10_000 simulations. 
 
 `run_asymptote.jl` script to run the asymptote simulations (julia)
 
