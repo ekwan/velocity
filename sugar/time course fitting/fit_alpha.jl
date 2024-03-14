@@ -30,7 +30,7 @@ sel_bounds = [-20, 20]
 
 
 # import and process training data
-fit_data = CSV.read("../expt_data/alpha_trainset.csv", DataFrame)
+fit_data = CSV.read("expt_data/alpha_trainset.csv", DataFrame)
 
 grouped = groupby(fit_data, :Run)
 datasets = []

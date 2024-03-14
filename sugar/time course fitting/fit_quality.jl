@@ -76,8 +76,8 @@ function removecatconcs(dataset)
     return [dataset[1:2]; dataset[5:end]]
 end
 
-alpha_data = get_dataset("../expt_data/alpha_alldata.csv")
-beta_data = get_dataset("../expt_data/beta_alldata.csv")
+alpha_data = get_dataset("expt_data/alpha_alldata.csv")
+beta_data = get_dataset("expt_data/beta_alldata.csv")
 
 alpha_params = [
     ("Glc_All", 8696.595466168013, 19.41682188288102),
@@ -112,6 +112,44 @@ beta_params = [
 alpha_network = get_network_cat(alpha_params, 0.000014)
 beta_network = get_network_cat(beta_params, 0.000014)
 
+function rmsd(error)
+    return sqrt(sum(error .^ 2) / length(error))
+end
+
+function rmsd(data, sim, damp=0)
+    error = data .- sim
+    if damp != 0
+        error = [max(x - damp, 0) for x in error]
+    end
+
+    return sqrt(sum(error .^ 2) / length(data))
+end
+
+function loss_function(paramset_formatted, datasets)
+
+    # 0.000014 is the rate of catalyst degradation
+    paramset_formatted_float = [(x[1], float(x[2]), float(x[3])) for x in paramset_formatted]
+    network = get_network_cat(paramset_formatted_float, 0.000014)
+    errors = []
+
+    for dataset in datasets
+        sim = simulate_timecourse(network, dataset[1], (0.0, maximum(dataset[2])), dataset[2]).u
+        local_errors = []
+        for (idx, timepoint) in enumerate(sim)
+            timepoint = [timepoint[1:2]; timepoint[5:end]] # remove catalysts
+            push!(local_errors, rmsd(dataset[3][idx], timepoint, 0))
+        end
+        push!(errors, rmsd(local_errors))
+    end
+
+    return rmsd(errors) / 0.2 * 100 # convert to percent
+end
+println("Overall loss for alpha: ")
+println(loss_function(alpha_params, alpha_data))
+
+println("Overall loss for beta: ")
+println(loss_function(beta_params, beta_data))
+
 function get_pred_vs_expt_time_plots(network, dataset)
     plot_list = []
     initial_cond, times, data_vector = dataset
@@ -139,11 +177,11 @@ end
 
 for i in eachindex(alpha_data)
     a = plot(get_pred_vs_expt_time_plots(alpha_network, alpha_data[i])..., legend=false, layout=(2, 4), ms=4, lw=3, xticks=false, foreground_color_axis=hcolors["gray"], foreground_color_border=hcolors["gray"], foreground_color_text=hcolors["gray"], background_color=:transparent, size=(400, 180), dpi=800)
-    savefig("testdata/alpha_$i.png")
+    savefig("alpha_$i.png")
 end
 
 
 for i in eachindex(beta_data)
     a = plot(get_pred_vs_expt_time_plots(beta_network, beta_data[i])..., legend=false, layout=(2, 4), ms=4, lw=3, xticks=false, foreground_color_axis=hcolors["gray"], foreground_color_border=hcolors["gray"], foreground_color_text=hcolors["gray"], background_color=:transparent, size=(400, 180), dpi=800)
-    savefig("testdata/beta_$i.png")
+    savefig("beta_$i.png")
 end

@@ -30,7 +30,7 @@ rate_set = 1000:500:20000
 
 
 # import and process training data
-fit_data = CSV.read("../expt_data/beta_trainset.csv", DataFrame)
+fit_data = CSV.read("expt_data/beta_trainset.csv", DataFrame)
 grouped = groupby(fit_data, :Run)
 sugars = ["Glc", "Man", "All", "Gal", "Alt", "Tal", "Gul", "Ido"]
 sugars = sort(sugars)
