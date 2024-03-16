@@ -42,11 +42,11 @@ Stochastic simulations, data, and analysis scripts.
 
 `run_asymptote.jl` script to run the asymptote simulations (julia)
 
-`asymptote-process.jl` script to process the asymptote simulation results (julia)
+`asymptote_process.jl` script to process the asymptote simulation results (julia)
 
 `run_transient.jl` script to run the transient simulations (julia)
 
-`transient-process.jl` script to process the transient simulation results (julia)
+`transient_process.jl` script to process the transient simulation results (julia)
 
 ### Dft structures
 

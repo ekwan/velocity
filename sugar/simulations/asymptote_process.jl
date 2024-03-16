@@ -1,20 +1,29 @@
 using CSV
 using DataFrames
-using Plots
 
 sugars = ["All", "Alt", "Gal", "Glc", "Gul", "Tal", "Ido", "Man"]
-
 ids = ["basin", "c3", "parallel", "total", "twobasin-inv", "twobasin-uc"]
 bias_types = ["none", "selectivity"]
 edge_cors = [0.0, 0.2, 0.4, 0.6, 0.8]
 
-# 6 dimensional matrix of dataframes
+# initialize matrix of dataframes to store results
 dfs = Array{DataFrame}(undef, length(ids), length(edge_cors), length(bias_types))
 
-#get percent > cutoff for a given sugar
 function get_prob_sugar(df, sugar="All", cutoff=0.5)
+    """given a dataframe of asymptote results, return the probability of a sugar being greater than a cutoff value
+
+    Args:
+        df (DataFrame): dataframe of asymptote results
+        sugar (str): sugar to check or "Any" for all sugars
+        cutoff (float): cutoff value
+
+    Returns:
+        float: probability of sugar being greater than cutoff
+    """
+
     @assert sugar in sugars || sugar == "Any"
 
+    # sum(boolean array) / length(boolean array) is probability of true
     if sugar == "Any"
         return sum(maximum.(eachrow(df)) .> cutoff) / length(df[!, "All"])
     else
@@ -22,21 +31,28 @@ function get_prob_sugar(df, sugar="All", cutoff=0.5)
     end
 end
 
-sugar_interest = "All"
-cutoff = 0.5
-
-# populate the matrix + print results
+# populate the matrix by reading result files
 for (idx1, id) in enumerate(ids)
     for (idx2, edge_cor) in enumerate(edge_cors)
         for (idx3, bias) in enumerate(bias_types)
             title = "results_$(id)_1.25_1.25_selectivity_$(bias)_$(edge_cor).csv"
             try
                 dfs[idx1, idx2, idx3] = CSV.read("asymptote-data/" * title, DataFrame)[!, sugars] ./ 0.2 # only sugars + molarity
-                println("Read file: id: $id, edge_cor: $edge_cor, bias: $bias")
-                println("Probability of 'Allose' > 0.5: ", get_prob_sugar(dfs[idx1, idx2, idx3], sugar_interest, cutoff))
             catch
                 println("Error reading file: $title")
             end
+        end
+    end
+end
+
+sugar_interest = "All"
+cutoff = 0.5
+
+# print out results
+for (idx1, id) in enumerate(ids)
+    for (idx2, edge_cor) in enumerate(edge_cors)
+        for (idx3, bias) in enumerate(bias_types)
+            println("$(id) $(edge_cor) $(bias): $(get_prob_sugar(dfs[idx1, idx2, idx3], sugar_interest, cutoff))")
         end
     end
 end
