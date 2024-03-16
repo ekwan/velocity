@@ -52,7 +52,7 @@ A struct representing a composite reaction, i.e. where order must be specified s
 - `reactants::Dict{Species,Int64}`: A dictionary of species and their stoichiometries as reactants.
 - `products::Dict{Species,Int64}`: A dictionary of species and their stoichiometries as products.
 - `catalysts::Dict{Species,Int64}`: A dictionary of species and their stoichiometries as catalysts. (default: `Dict{}`)
-- `order::Dict{Species,Int64}`: A dictionary specifying the order of species in the reaction.
+- `order::Tuple{Dict{Species,Int64},Dict{Species,Int64}}`: A tuple of dictionary specifying the order of species in the forward and reverse reactions.
 - `rate_constant::Tuple{Float64,Float64}`: A tuple of forward and reverse rate constants.
 - `description::String`: A description of the reaction. (default: "")
 - `id::String`: An identifier for the reaction.
@@ -62,7 +62,7 @@ A struct representing a composite reaction, i.e. where order must be specified s
     reactants::Dict{Species,Int64}
     products::Dict{Species,Int64}
     catalysts::Dict{Species,Int64} = Dict{}
-    order::Dict{Species,Int64}
+    order::Tuple{Dict{Species,Int64},Dict{Species,Int64}}
     rate_constant::Tuple{Float64,Float64}
     description::String = ""
     id::String
@@ -145,30 +145,49 @@ The rate vector represents the rate of change of each species in the network.
 """
 function get_rate_vector(concentrations::Dict{Species,Float64}, network::RxnNetwork)
     # given a network, return the stoichiometry matrix
+
+    # get species
     species = network.species
 
+    # generate an zero rate dictionary
     rate_vector = Dict{Species,Float64}()
     for s in species
         rate_vector[s] = 0.0
     end
 
+    # loop through each reaction and determine its effect on rate_vector
     for rxn in network.reactions
-        rate_f = rxn.rate_constant[1]
-        rate_b = rxn.rate_constant[2]
-        # if rxn is CompositeReaction then we use order instead of stoich
-        if typeof(rxn) == CompositeReaction
-            orders = rxn.order
 
-            for (s, o) in orders
+        # calculate the rate of the reaction
+        # determine forward and reverse rate
+        # rate = k * ([A]^a * [B]^b...) * ([cat1]^c...)
+        rate_f = rxn.rate_constant[1] # forward rate
+        rate_b = rxn.rate_constant[2] # back rate
+
+        # determine if the reaction is a composite reaction or just a simple reaction
+        # ie if we can use reaction stoichiometries instead of order
+        
+        if typeof(rxn) == CompositeReaction
+
+            # get order dictionary
+            order_f, order_b = rxn.order
+
+            # for each reactant adjust rate_f
+            for (s, o) in order_f
                 rate_f *= concentrations[s]^o
             end
-            for (s, o) in orders
+
+            # similarly adjust rate_b
+            for (s, o) in order_b
                 rate_b *= concentrations[s]^o
             end
+            
         else # just use the stoichiometries
+
             for (s, o) in rxn.reactants
                 rate_f *= concentrations[s]^o
             end
+            
             for (s, o) in rxn.products
                 rate_b *= concentrations[s]^o
             end
@@ -179,8 +198,11 @@ function get_rate_vector(concentrations::Dict{Species,Float64}, network::RxnNetw
             end
         end
 
+        # calculate difference in forward and reverse rates
+        # to get effect on species concentration
         rate = rate_f - rate_b
 
+        # calculate change in each species
         for s in species
             if haskey(rxn.reactants, s)
                 rate_vector[s] -= rate
@@ -194,13 +216,27 @@ function get_rate_vector(concentrations::Dict{Species,Float64}, network::RxnNetw
     return rate_vector
 end
 
+"""
+    simulate_timecourse(network::RxnNetwork, initial_conc::Dict{Species,Float64}, tspan::Tuple{Float64,Float64}, t_eval::Tuple{Float64,Vararg{Float64}})
+
+Given a network and initial concentrations and time properties calculate timepoints by numeric integration.
+
+# Arguments
+- `network`: A RxnNetwork
+- `initial_conc`: A dictionary of initial concentrations. This should definte the concentration of every species in the network
+- `tspan`: tuple of time span to integrate
+- `t_eval`: tuple of time points to keep track of
+
+# Returns
+- `sol`: Differential equation solution. sol.u = list of concentration vectors at each time point, sol.t = timepoints
+
+"""
 function simulate_timecourse(network::RxnNetwork, initial_conc::Dict{Species,Float64}, tspan::Tuple{Float64,Float64}, t_eval::Tuple{Float64,Vararg{Float64}})
-    # define ODE
     # Convert initial_conc to an Array
     species_order = sort(collect(keys(initial_conc)))  # to ensure consistent order
     initial_conc_array = [initial_conc[species] for species in species_order]
 
-    # Modify the f! function0))
+    # f! function
     function f!(du, u, p, t)
         # Convert u back to a Dict
         u_dict = Dict(species_order[i] => u[i] for i in 1:length(u))
